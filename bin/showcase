@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+#
+# showcase — captura 1 aprendizado real (TIL) e commita neste repo.
+#
+# Fluxo:
+#   1. gera um rascunho til/AAAA-MM-DD-titulo.md a partir de um template
+#   2. abre no $EDITOR para você preencher
+#   3. se você salvar com conteúdo real, adiciona 1 linha em CONTRIBUTIONS.md,
+#      faz git add + commit + push
+#   4. se você sair sem preencher nada, aborta sem commitar
+#
+# Uso:
+#   showcase                      # pergunta o título interativamente
+#   showcase "useMemo vs useCallback"   # já passa o título
+#
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Localiza a raiz do repo work-showcase (o repo onde este script vive),
+# não o repo de onde você chamou o comando.
+# ---------------------------------------------------------------------------
+# Resolve symlinks: showcase costuma ser chamado via symlink em ~/.local/bin,
+# então precisamos do caminho real do arquivo para achar a raiz do repo.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  target="$(readlink "$SOURCE")"
+  case "$target" in
+    /*) SOURCE="$target" ;;
+    *)  SOURCE="$(dirname "$SOURCE")/$target" ;;
+  esac
+done
+SCRIPT_PATH="$(cd "$(dirname "$SOURCE")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_PATH/.." && pwd)"
+
+CONTRIB_FILE="$REPO_ROOT/CONTRIBUTIONS.md"
+TIL_DIR="$REPO_ROOT/til"
+MARKER="<!-- TIL_ENTRIES -->"
+# Linha-sentinela do template: se ela sobreviver intacta, consideramos vazio.
+PLACEHOLDER="<!-- escreva aqui o que você aprendeu. apague esta linha. -->"
+
+die() { printf '\033[0;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+info() { printf '\033[0;36m%s\033[0m\n' "$*"; }
+ok() { printf '\033[0;32m✓ %s\033[0m\n' "$*"; }
+
+[ -d "$TIL_DIR" ] || die "pasta til/ não encontrada em $REPO_ROOT"
+[ -f "$CONTRIB_FILE" ] || die "CONTRIBUTIONS.md não encontrado em $REPO_ROOT"
+
+# ---------------------------------------------------------------------------
+# Título
+# ---------------------------------------------------------------------------
+TITLE="${1:-}"
+if [ -z "$TITLE" ]; then
+  printf 'Título do TIL (ex: "useMemo vs useCallback"): '
+  read -r TITLE
+fi
+[ -n "$TITLE" ] || die "título vazio — abortando."
+
+DATE="$(date +%Y-%m-%d)"
+
+# slug: minúsculas, troca não-alfanuméricos por '-', remove '-' nas pontas
+slug() {
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | iconv -t ascii//TRANSLIT 2>/dev/null \
+    | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+}
+SLUG="$(slug "$TITLE")"
+[ -n "$SLUG" ] || SLUG="til"
+
+TIL_FILE="$TIL_DIR/$DATE-$SLUG.md"
+TIL_REL="til/$DATE-$SLUG.md"
+
+# Evita sobrescrever um TIL já existente com o mesmo nome.
+if [ -e "$TIL_FILE" ]; then
+  n=2
+  while [ -e "$TIL_DIR/$DATE-$SLUG-$n.md" ]; do n=$((n + 1)); done
+  TIL_FILE="$TIL_DIR/$DATE-$SLUG-$n.md"
+  TIL_REL="til/$DATE-$SLUG-$n.md"
+fi
+
+# ---------------------------------------------------------------------------
+# Rascunho a partir do template
+# ---------------------------------------------------------------------------
+cat > "$TIL_FILE" <<EOF
+# $TITLE
+
+**Data:** $DATE
+**Tags:** <!-- ex: react, performance -->
+
+$PLACEHOLDER
+EOF
+
+# ---------------------------------------------------------------------------
+# Abre no editor
+# ---------------------------------------------------------------------------
+pick_editor() {
+  if [ -n "${VISUAL:-}" ]; then printf '%s' "$VISUAL"; return; fi
+  if [ -n "${EDITOR:-}" ]; then printf '%s' "$EDITOR"; return; fi
+  for e in nano vim vi; do
+    if command -v "$e" >/dev/null 2>&1; then printf '%s' "$e"; return; fi
+  done
+  printf 'nano'
+}
+ED="$(pick_editor)"
+
+info "Abrindo $TIL_REL no editor ($ED)…"
+# shellcheck disable=SC2086
+$ED "$TIL_FILE"
+
+# ---------------------------------------------------------------------------
+# Validação: o usuário preencheu de verdade?
+# ---------------------------------------------------------------------------
+# Remove cabeçalho/template e checa se sobrou texto significativo.
+BODY="$(grep -v -e "^# $TITLE\$" \
+                -e '^\*\*Data:\*\*' \
+                -e '^\*\*Tags:\*\*' \
+                -e "^$PLACEHOLDER\$" \
+                -e '^[[:space:]]*$' \
+                "$TIL_FILE" || true)"
+
+if [ -z "$(printf '%s' "$BODY" | tr -d '[:space:]')" ]; then
+  rm -f "$TIL_FILE"
+  die "rascunho vazio (placeholder intacto) — nada foi commitado."
+fi
+
+# Captura tags para a linha do índice (se houver).
+TAGS="$(grep -m1 '^\*\*Tags:\*\*' "$TIL_FILE" \
+          | sed -E 's/^\*\*Tags:\*\*[[:space:]]*//; s/<!--.*-->//; s/[[:space:]]+$//' || true)"
+
+# ---------------------------------------------------------------------------
+# Insere a linha no CONTRIBUTIONS.md logo após o marcador (mais recente no topo).
+# ---------------------------------------------------------------------------
+if [ -n "$TAGS" ]; then
+  ENTRY="- $DATE — [$TITLE]($TIL_REL) — $TAGS"
+else
+  ENTRY="- $DATE — [$TITLE]($TIL_REL)"
+fi
+
+grep -qF "$MARKER" "$CONTRIB_FILE" || die "marcador '$MARKER' ausente em CONTRIBUTIONS.md"
+
+tmp="$(mktemp)"
+awk -v marker="$MARKER" -v entry="$ENTRY" '
+  { print }
+  $0 == marker && !done { print entry; done = 1 }
+' "$CONTRIB_FILE" > "$tmp"
+mv "$tmp" "$CONTRIB_FILE"
+
+# ---------------------------------------------------------------------------
+# git add + commit + push (sempre no repo work-showcase)
+# ---------------------------------------------------------------------------
+cd "$REPO_ROOT"
+git add "$TIL_REL" "CONTRIBUTIONS.md"
+
+COMMIT_MSG="TIL: $TITLE ($DATE)"
+git commit -m "$COMMIT_MSG"
+ok "commit criado: $COMMIT_MSG"
+
+if git push 2>/dev/null; then
+  ok "push concluído."
+else
+  printf '\033[0;33m⚠ push falhou (sem rede/remote?). Commit local está salvo; rode git push depois.\033[0m\n' >&2
+fi
+
+ok "TIL registrado: $TIL_REL"
