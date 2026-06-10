@@ -3,3 +3,4 @@
 Índice cronológico de aprendizados reais. Uma linha por TIL, gerada pelo script `showcase`.
 
 <!-- TIL_ENTRIES -->
+- 2026-06-10 — [Testes para o front](til/2026-06-10-testes-para-o-front.md)
