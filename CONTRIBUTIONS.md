@@ -3,6 +3,7 @@
 Índice cronológico de aprendizados reais. Uma linha por TIL, gerada pelo script `showcase`.
 
 <!-- TIL_ENTRIES -->
+- 2026-06-21 — [Learnings: React + Zod](til/2026-06-21-learnings-react-zod.md)
 - 2026-06-19 — [learning: React form/navigation debugging notes](til/2026-06-19-learning-react-form-navigation-debugging-notes.md)
 - 2026-06-17 — [chore: notes on React state sync, IEEE-754 rounding, query shaping and commit hygiene](til/2026-06-17-chore-notes-on-react-state-sync-ieee-754-rounding-query-shaping-and-commit-hygiene.md)
 - 2026-06-16 — [floating-point artifacts](til/2026-06-16-floating-point-artifacts.md)
